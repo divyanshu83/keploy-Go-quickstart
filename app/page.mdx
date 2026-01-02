@@ -1,0 +1,219 @@
+export const metadata = {
+  title: 'Testing Go APIs with Keploy | Echo + Postgres Tutorial',
+}
+
+<div className="max-w-4xl mx-auto px-6 py-12">
+<div className="prose prose-slate dark:prose-invert max-w-none prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:underline">
+
+
+# Testing Go APIs with Keploy: Echo + Postgres
+
+This guide shows you how to automatically generate test cases for a Go REST API built with Echo and Postgres. By the end, you'll understand how Keploy records real API calls and replays them as tests — so you can validate your API without writing a single test yourself.
+
+## What is Keploy?
+
+Keploy is an **open-source testing tool** that watches your application during normal operation and automatically generates test cases based on real traffic. Think of it as recording a video of your API calls, then replaying that video to verify nothing breaks over time.
+
+**Why this matters:** Writing tests manually is tedious and time-consuming. Keploy captures real requests and responses, including database queries, so you get realistic test coverage without the boilerplate.
+
+## Prerequisites
+
+Before starting, make sure you have:
+
+- Go 1.20+ installed
+- Docker (for running Postgres)
+- Basic familiarity with REST APIs
+
+<Callout type="info">
+This tutorial uses Echo framework and Postgres, but Keploy works with any Go web framework (Gin, Fiber, net/http, etc.).
+</Callout>
+
+## Step 1: Clone the Sample Application
+
+We'll use a simple bookstore API that manages books in a Postgres database.
+
+```bash
+git clone https://github.com/keploy/samples-go
+cd samples-go/echo-sql
+```
+
+The application has three endpoints:
+- `POST /books` - Create a book
+- `GET /books` - List all books
+- `GET /books/:id` - Get a specific book
+
+## Step 2: Start Postgres
+
+The sample app needs a Postgres database. Start one using Docker:
+
+```bash
+docker run -d \
+  --name postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=bookstore \
+  -p 5432:5432 \
+  postgres:15
+```
+
+Verify it's running:
+
+```bash
+docker ps
+```
+
+You should see the postgres container listed.
+
+## Step 3: Install Keploy
+
+Download and install Keploy CLI:
+
+```bash
+curl --silent --location "https://github.com/keploy/keploy/releases/latest/download/keploy_linux_amd64.tar.gz" | tar xz -C /tmp
+sudo mv /tmp/keploy /usr/local/bin
+```
+
+Verify installation:
+
+```bash
+keploy --version
+```
+
+<Callout type="info">
+On macOS or Windows, use Docker Desktop and follow the [platform-specific instructions](https://keploy.io/docs/server/installation/).
+</Callout>
+
+## Step 4: Record Test Cases
+
+Now comes the interesting part. Keploy will watch your application and record API calls as test cases.
+
+Start the app in record mode. In this mode, Keploy runs alongside your application and observes incoming requests and external calls:
+
+```bash
+keploy record -c "go run main.go"
+```
+
+Your API is now running on `http://localhost:8080`. Open a new terminal and make some requests:
+
+```bash
+# Create a book
+curl -X POST http://localhost:8080/books \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "The Go Programming Language",
+    "author": "Alan Donovan",
+    "isbn": "978-0134190440"
+  }'
+
+# Create another book
+curl -X POST http://localhost:8080/books \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Clean Code",
+    "author": "Robert Martin",
+    "isbn": "978-0132350884"
+  }'
+
+# List all books
+curl http://localhost:8080/books
+
+# Get a specific book
+curl http://localhost:8080/books/1
+```
+
+**What just happened?** Keploy recorded each request along with:
+- HTTP headers and body
+- Database queries executed
+- Response data
+- Timing information
+
+Stop the server (Ctrl+C). Check the `keploy` directory—you'll see YAML files containing your recorded test cases.
+
+<Callout type="success">
+Each test case is a snapshot of one complete request-response cycle, including all external dependencies like database calls.
+</Callout>
+
+## Step 5: Replay Tests
+
+Now replay those recorded interactions as tests. You don’t need to send any new requests—Keploy replays everything it recorded earlier:
+
+```bash
+keploy test -c "go run main.go"
+```
+
+Keploy will:
+1. Start your application
+2. Replay each recorded request
+3. Compare actual responses with recorded responses
+4. Report pass/fail for each test
+
+You should see output like:
+
+```
+Test Suite: echo-sql
+├─ Test 1: POST /books [PASSED]
+├─ Test 2: POST /books [PASSED]
+├─ Test 3: GET /books [PASSED]
+└─ Test 4: GET /books/1 [PASSED]
+
+Total: 4 | Passed: 4 | Failed: 0
+```
+
+## Understanding What Keploy Does
+
+Here's what makes Keploy powerful:
+
+**1. Database mocking is automatic**
+- Keploy records SQL queries during `keploy record`
+- During `keploy test`, it intercepts database calls and returns recorded data
+- Your tests don’t need a live database during replay
+
+**2. Tests are deterministic**
+- Timestamps, UUIDs, and auto-incrementing IDs are normalized
+- Tests pass consistently across runs
+
+**3. Integration with CI/CD**
+- Run `keploy test` in your GitHub Actions or Jenkins pipeline
+- No need to maintain separate test databases
+
+## Common Issues and Solutions
+
+**Issue:** Tests fail after changing response format
+
+**Solution:** This is expected! Re-record tests after API changes:
+```bash
+rm -rf keploy/
+keploy record -c "go run main.go"
+# Make your API calls again
+```
+
+**Issue:** Database connection errors during tests
+
+**Solution:** Keploy mocks the database during testing. Make sure you're using `keploy test`, not running the app directly.
+
+## Next Steps
+
+Now that you understand the basics:
+
+1. **Try it with your own API** - Keploy works with any Go application
+2. **Explore test reports** - Check `keploy/reports/` for detailed test results
+3. **Add to CI/CD** - Run `keploy test` in your deployment pipeline
+4. **Test edge cases** - Record error scenarios like invalid input or network failures
+
+## Why Go Developers Love Keploy
+
+Traditional testing requires:
+- Writing test setup code
+- Mocking database calls manually
+- Maintaining test fixtures
+- Keeping tests in sync with code changes
+
+Keploy eliminates this by generating tests from actual usage. You still review and version control the test cases, but you don't write them from scratch.
+
+**The real benefit:** Your tests reflect how the API is actually used, not how you think it should be used. This makes Keploy especially useful for fast-moving teams where APIs change frequently.
+
+---
+
+Questions or issues? Check the [Keploy documentation](https://keploy.io/docs) or join the [community Slack](https://join.slack.com/t/keploy/shared_invite/zt-12rfbvc01-o54cOG0X1G6eVJTuI_orSA).
+
+</div>
+</div>
